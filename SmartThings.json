@@ -1,0 +1,311 @@
+{
+  "name": "Samsung",
+  "nodes": [
+    {
+      "parameters": {
+        "description": "[역할]\n- 한국어 자연어 입력을 받아 SmartThings 제어/조회에 필요한 정보를 ‘정규화’한다.\n- 필요 시에만 사용자에게 묻는 1문장 질문(ask)을 생성한다. (후보가 1개면 질문 없이 진행)\n- 마지막 줄에 반드시 Output Contract JSON(1줄, minified)을 출력한다. 내부 추론은 노출하지 않는다.\n\n[입력]\n- 자연어 명령(예: “거실 에어컨 24도로 냉방, 바람 자동으로 켜줘”)\n- (선택) 세션 메모리: smartthings.lastDevice, smartthings.cache[label] → deviceId\n\n[판단 순서]\n1) 의도 결정 action ∈ {list, status, command, scene}\n   - 상태/몇 도/켜졌어? → status\n   - 켜/꺼/모드/온도/바람 설정 → command\n   - 장면 실행(야간모드 등) → scene\n   - 기기 찾기 또는 모호 → list\n2) deviceQuery 추출(라벨 또는 “공간+기기명”). deviceId는 절대 추측하지 않는다.\n   - 메모리 smartthings.cache[label] 또는 smartthings.lastDevice가 있으면 우선 사용하여 확정.\n   - 없으면 이후 상위 에이전트가 Get device를 호출하도록 유도하되, 후보가 1개라고 판단되면 질문 없이 진행, 2개 이상일 듯하면 ask 1문장으로 확인.\n3) 슬롯 정규화(한글 동의어 → 표준 값)\n   - 전원: 켜/켜줘→on, 꺼/꺼줘→off → capability=switch, command=on/off\n   - 모드: 냉방→cool, 난방→heat, 제습→dry, 자동→auto, 송풍→fanOnly\n     → capability=airConditionerMode, command=setAirConditionerMode, arguments=[\"<mode>\"]\n   - 냉방 설정온도: “N도/도씨” → thermostatCoolingSetpoint.setCoolingSetpoint(N)\n   - 난방 설정온도: thermostatHeatingSetpoint.setHeatingSetpoint(N)\n   - 팬(풍량/바람): 자동/약/중/강 → thermostatFanMode.setThermostatFanMode(\"auto\"|\"low\"|\"medium\"|\"high\")\n     (장치가 fanSpeed만 지원하면 fanSpeed.setFanSpeed(<정수>))\n   - 스윙/풍향: fanOscillationMode.setFanOscillationMode(\"vertical\"|\"horizontal\"|\"all\"|\"stop\")\n   - 밝기: “N%” → switchLevel.setLevel(N)\n   - 온도 단위는 기본 섭씨. 화씨가 들어오면 섭씨로 변환해 arguments에는 섭씨 숫자 사용(요약에는 필요 시 둘 다 표시).\n\n[delta 처리(상대→절대)]\n- “1도 낮춰/올려” 등 delta가 있으면 현재 setpoint를 기준으로 target = 현재 + delta 계산.\n  - 냉방: thermostatCoolingSetpoint.setCoolingSetpoint(target)\n  - 난방: thermostatHeatingSetpoint.setHeatingSetpoint(target)\n- delta 자체를 arguments로 보내지 않는다. 항상 **절대값(arguments:[target])**을 만든다.\n\n[commands 배열 구성(툴 입력용)]\n- 목적: **Command 툴에 전달할 top-level `commands` 배열을 반드시 생성**한다.\n- 가능하면 전원·모드·온도·팬을 한 번의 호출에 함께 담는다.\n- 형식:\n  commands: [\n    {\"component\":\"main\",\"capability\":\"switch\",\"command\":\"on\"},\n    {\"component\":\"main\",\"capability\":\"airConditionerMode\",\"command\":\"setAirConditionerMode\",\"arguments\":[\"cool\"]},\n    {\"component\":\"main\",\"capability\":\"thermostatCoolingSetpoint\",\"command\":\"setCoolingSetpoint\",\"arguments\":[24]}\n  ]\n- 화면 표시용 복사본이 필요하면 `data.echoed`에 동일 배열을 넣을 수 있으나, **툴 입력은 `data.commands`** 기준으로 한다.\n\n[status 질의 시 추천 attrs]\n- 에어컨: [\"temperature\",\"airConditionerMode\",\"thermostatCoolingSetpoint\",\"switch\"]\n- 조명:   [\"switch\",\"switchLevel\"]\n\n[에러/안전]\n- deviceId 미확정이면 action=list로 전환하고 ask 채우기(또는 상위가 Get device를 호출하도록 유도).\n- 상태/스펙에 없는 값은 보내지 않는다. 가장 가까운 허용값을 제안.\n- 수/배열 타입을 보존(문자열로 만들지 말 것). JSON은 마지막 줄 1줄(minified).\n\n[출력 형식]\n- 첫 줄: 사용자용 1–2문장 요약.\n- 마지막 줄: Output Contract JSON(1줄, minified). **`data.commands`를 포함해서 Command 툴이 바로 쓸 수 있게 한다.**\n\n[Output Contract]\n{\n  \"ok\": true|false,\n  \"action\": \"list|status|command|scene\",\n  \"label\": \"<string>\",          // 사용자가 의도한 라벨(모르면 \"\")\n  \"deviceId\": \"<string>\",       // 확정 시만 값, 아니면 \"\"\n  \"missing\": [\"<필수 슬롯명>\"], // 부족 슬롯(없으면 [])\n  \"ask\": \"<1문장 질문/선택지, 없으면 빈 문자열>\",\n  \"data\": {\n    \"attrs\": [\"...\"],           // status일 때 선택\n    \"commands\": [               // ★ Command 툴 입력용\n      { \"component\":\"main\", \"capability\":\"...\", \"command\":\"...\", \"arguments\":[...] }\n    ],\n    \"echoed\": [ ... ]           // (선택) 화면 표시용 복사본\n  }\n}\n\n[예시]\n입력: 거실 에어컨 24도로 냉방 켜줘\n요약: 거실 에어컨을 냉방 24℃, 팬 자동으로 켭니다.\nJSON:\n{\"ok\":true,\"action\":\"command\",\"label\":\"거실 에어컨\",\"deviceId\":\"\",\"missing\":[],\"ask\":\"\",\"data\":{\"commands\":[{\"component\":\"main\",\"capability\":\"switch\",\"command\":\"on\"},{\"component\":\"main\",\"capability\":\"airConditionerMode\",\"command\":\"setAirConditionerMode\",\"arguments\":[\"cool\"]},{\"component\":\"main\",\"capability\":\"thermostatCoolingSetpoint\",\"command\":\"setCoolingSetpoint\",\"arguments\":[24]},{\"component\":\"main\",\"capability\":\"thermostatFanMode\",\"command\":\"setThermostatFanMode\",\"arguments\":[\"auto\"]}]}}\n\n입력: 안방 에어컨 지금 온도?\n요약: 안방 에어컨 상태를 확인할게요.\nJSON:\n{\"ok\":true,\"action\":\"status\",\"label\":\"안방 에어컨\",\"deviceId\":\"\",\"missing\":[],\"ask\":\"\",\"data\":{\"attrs\":[\"temperature\",\"airConditionerMode\",\"thermostatCoolingSetpoint\",\"switch\"]}}\n\n입력: 스탠드형 에어컨 1도 낮춰\n요약: 현재 냉방 설정 24.5℃에서 1℃ 낮춰 23.5℃로 조절합니다.\nJSON:\n{\"ok\":true,\"action\":\"command\",\"label\":\"스탠드형 에어컨\",\"deviceId\":\"de9e1ad5-e6a7-646c-5f22-1a697238104d\",\"missing\":[],\"ask\":\"\",\"data\":{\"commands\":[{\"component\":\"main\",\"capability\":\"thermostatCoolingSetpoint\",\"command\":\"setCoolingSetpoint\",\"arguments\":[23.5]}]}}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        -208,
+        128
+      ],
+      "id": "975e457b-6632-4569-8a1d-9ca56718fcba",
+      "name": "Think"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-5-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        48
+      ],
+      "id": "bc81474e-5704-4f12-bd66-813b08046dae",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "NCKNIo4gaXr4wzeO",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.smartthings.com/v1/devices?limit=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "optimizeResponse": true,
+        "dataField": "items",
+        "fieldsToInclude": "selected",
+        "fields": "deviceId,label,deviceTypeName,roomId,locationId,manufacturerName"
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        64,
+        128
+      ],
+      "id": "2c94039b-a428-418d-88b2-726222e83ffd",
+      "name": "Get device",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "Pbcbxr4PkhAxb9cU",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.smartthings.com/v1/devices/{{$fromAI(\"deviceId\")}}/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "optimizeResponse": true,
+        "dataField": "components",
+        "fieldsToInclude": "selected",
+        "fields": "main.temperatureMeasurement.temperature.value,main.thermostatCoolingSetpoint.coolingSetpoint.value,main.thermostatHeatingSetpoint.heatingSetpoint.value,main.airConditionerMode.acMode.value,main.airConditionerFanMode.fanMode.value,main.fanOscillationMode.fanOscillationMode.value,main.switch.switch.value"
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        160,
+        128
+      ],
+      "id": "23f90615-4d11-4535-9a31-ebd1d6156921",
+      "name": "Get status",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "Pbcbxr4PkhAxb9cU",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "18ed55b9-ed62-487c-b20e-7fd12bc86730",
+        "responseMode": "lastNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -640,
+        -112
+      ],
+      "id": "03a7af13-ca60-4ad8-a895-57a11c9ec18b",
+      "name": "Webhook",
+      "webhookId": "18ed55b9-ed62-487c-b20e-7fd12bc86730"
+    },
+    {
+      "parameters": {
+        "toolDescription": "=Makes an HTTP request and returns the response data",
+        "method": "POST",
+        "url": "=https://api.smartthings.com/v1/devices/{{ $fromAI(\"deviceId\") }}/commands\n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $fromAI(\"commands\") }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        128
+      ],
+      "id": "2650c510-63a7-4aae-a1fb-cddf983b56ce",
+      "name": "Command",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "Pbcbxr4PkhAxb9cU",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body }}",
+        "options": {
+          "systemMessage": "[System Prompt] SmartThings 제어 에이전트 (파서 없이 고정 출력)\n\n역할\n- 너는 SmartThings 집안 제어/조회 비서다. 한국어로만 답한다.\n- 내부 추론(Chain-of-thought)을 노출하지 않는다.\n\n가용 도구\n- Get device  : GET /v1/devices (필요 시 capability=airConditionerMode 등으로 필터)\n- Get status  : GET /v1/devices/{deviceId}/status\n- Command     : POST /v1/devices/{deviceId}/commands   ← HTTP 바디는 항상 {\"commands\":[...]}\n- Think       : (필요시에만) 짧은 확인/정규화에 사용\n\n도구 호출 규칙 (강제 지침)\n1) 사용자의 요청에 “켜/꺼/설정/온도/모드/팬/스윙/장면 실행” 등 **제어 의도**가 있으면 **반드시 Command 도구를 호출**해 실제 명령을 전송한다. 자연어만 출력하고 도구를 생략하는 것은 금지한다. (실패 시 스스로 재시도)\n2) 장치 라벨/종류가 모호하면 먼저 **Get device**(가능하면 capability 필터)로 후보를 만든다. 후보가 1개면 질문 없이 진행, 2개 이상이면 **Think**로 1문장 확인 후 확정, 0개면 상위 후보 3개 라벨을 제안하고 중단.\n3) “1도 낮춰/올려” 같은 **델타**는 먼저 **Get status**로 현재 setpoint를 읽고 `새목표 = 현재 + delta`를 계산하여 **절대값**으로 보낸다.\n   - 냉방: capability `thermostatCoolingSetpoint`, command `setCoolingSetpoint`, arguments `[새목표]`\n   - 난방: capability `thermostatHeatingSetpoint`, command `setHeatingSetpoint`, arguments `[새목표]`\n4) 가능한 경우 전원·모드·온도·팬을 **commands[] 한 번의 Command 호출**로 묶는다.\n5) 장치가 지원하는 capability/command/arguments만 사용한다. (팬/스윙은 `airConditionerFanMode`/`fanOscillationMode` 우선, 없으면 `thermostatFanMode`/`fanSpeed` 대체)\n6) HTTP 실패(401/403/404/422 등)는 한 줄로 원인(토큰·권한·deviceId·지원 값 등)과 다음 조치를 간단히 안내한다.\n\n출력 형식 (파서 없이도 매핑 가능하도록 고정)\n- **항상 두 부분만 출력**한다.\n  1) 1–2문장 한국어 요약(핵심 값만)\n  2) **마지막 줄에 한 줄 JSON(minified)** 을 출력한다. 이 JSON은 다음 **루트 키**를 포함한다:\n     - `deviceId` (string)\n     - `commands` (array of objects; 각 객체는 `component`(string), `capability`(string), `command`(string), 선택적 `arguments`(array))\n- 금지: `output:` 같은 래퍼 키, 마크다운/백틱/코드블록, 여러 줄 JSON, JSON 전체를 문자열로 이스케이프하기, 키/값 오타.\n- 숫자값(예: 23.5)은 문자열이 아닌 **숫자 타입**으로 넣는다.\n- 마지막 줄 JSON 뒤에는 아무 텍스트도 추가하지 않는다.\n\n예시 지침(참고만; 실제 응답에 예시를 포함하지 말 것)\n- “스탠드형 에어컨 1도 낮춰”(현재 24.5℃) ⇒ target 23.5℃\n  - 요약: “스탠드형 에어컨 설정 온도를 23.5℃로 조정했습니다.”\n  - 마지막 줄 JSON(루트 키만): {\"deviceId\":\"<id>\",\"commands\":[{\"component\":\"main\",\"capability\":\"thermostatCoolingSetpoint\",\"command\":\"setCoolingSetpoint\",\"arguments\":[23.5]}]}\n\n준수 확인 체크리스트\n- 행동 요청이면 **반드시 Command 도구 호출** 후 결과를 요약+JSON 1줄로 마무리한다.\n- 마지막 줄 JSON의 루트에 `deviceId`, `commands`가 있어야 하며, 어떤 래퍼(`output`, `data` 등)도 쓰지 않는다.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        -112
+      ],
+      "id": "126c2c01-5580-4c1f-bb6c-cae9871550e3",
+      "name": "Smartthings"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.sessionId }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        128
+      ],
+      "id": "d227883d-567b-4bfa-a1d6-cefaf4c6d3b6",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $json.query || {};\nconst h = $json.headers || {};\nconst sid =\n  q.session_id ||\n  h['x-railway-request-id'] ||   // 있으면 최우선\n  h['x-real-ip'] ||              // 없으면 IP\n  Math.random().toString(36).slice(2); // 최후 fallback\n\nreturn [{ json: { ...$json, sessionId: String(sid) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -112
+      ],
+      "id": "ddef017e-63f1-45bd-8375-3ec8ff78bf70",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize Output: summary(문장) + deviceId/commands 추출\n\nfunction findTailJsonBounds(raw) {\n  if (typeof raw !== 'string') raw = String(raw ?? '');\n  const end = raw.lastIndexOf('}');\n  if (end < 0) return null;\n  let depth = 0, start = -1;\n  for (let i = end; i >= 0; i--) {\n    const ch = raw[i];\n    if (ch === '}') depth++;\n    else if (ch === '{') {\n      depth--;\n      if (depth === 0) { start = i; break; }\n    }\n  }\n  return (start >= 0) ? { start, end } : null;\n}\n\nfunction sanitizeJsonString(s) {\n  if (typeof s !== 'string') return s;\n  let t = s\n    .replace(/\\\\\"/g, '\"')\n    .replace(/\\\\n/g, '\\n')\n    .replace(/\\\\r/g, '\\r')\n    .replace(/\\\\t/g, '\\t')\n    .replace(/,\\s*]/g, ']')\n    .replace(/,\\s*}/g, '}');\n  // 여분 ']' 제거( arguments:[26]] 같은 케이스 )\n  const opens = (t.match(/\\[/g) || []).length;\n  const closes = (t.match(/]/g) || []).length;\n  if (closes > opens) {\n    let excess = closes - opens;\n    const arr = t.split('');\n    for (let i = arr.length - 1; i >= 0 && excess > 0; i--) {\n      if (arr[i] === ']') { arr.splice(i, 1); excess--; }\n    }\n    t = arr.join('');\n  }\n  return t;\n}\n\n// 1) 원문 확보\nconst raw =\n  $json.output ??\n  $json.body?.output ??\n  $json.text ??\n  $json.body ??\n  '';\n\n// 2) 꼬리 JSON 따로 빼서 파싱\nlet summary = String(raw);\nlet parsed = {};\nconst bounds = findTailJsonBounds(summary);\nif (bounds) {\n  const rawJson = summary.slice(bounds.start, bounds.end + 1);\n  const fixed   = sanitizeJsonString(rawJson);\n  try { parsed = JSON.parse(fixed); } catch { parsed = {}; }\n  // 문장만 남김\n  summary = summary.slice(0, bounds.start).trim()\n                   .replace(/[\"“”]+$/, '')\n                   .trim();\n}\n\n// 3) 표준화\nconst deviceId =\n  parsed.deviceId ??\n  parsed.data?.deviceId ??\n  '';\n\nconst commands =\n  Array.isArray(parsed.commands) ? parsed.commands\n  : (Array.isArray(parsed.data?.commands) ? parsed.data.commands : []);\n\n// 4) 방어: 필수 값이 없으면 실패 메시지로 명확히\nif (!deviceId || !Array.isArray(commands) || commands.length === 0) {\n  return [{\n    json: {\n      ok: false,\n      error: \"MISSING_FIELDS\",\n      message: \"deviceId/commands 추출 실패\",\n      summary, deviceId, commands\n    }\n  }];\n}\n\n\nconst payload = { ok: true, summary, deviceId, commands };\nreturn [{ json: payload }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -112
+      ],
+      "id": "dab1b60c-fec5-4919-b291-b1fbfe129482",
+      "name": "Code1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get device": {
+      "ai_tool": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get status": {
+      "ai_tool": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Command": {
+      "ai_tool": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smartthings": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Smartthings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f582eae5-7ba5-4af9-9f85-c9c1a5fdb844",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ac1f7bff01abab11d9580700c02d94e96a279438a79b2a17d8c07a38f76c3016"
+  },
+  "id": "1OFtvwxcpbfOdlze",
+  "tags": []
+}

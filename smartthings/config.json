@@ -1,0 +1,45 @@
+{
+  "service": "smartthings",
+  "description": "스마트홈 제어 서비스",
+  "version": "1.0.0",
+  "endpoints": {
+    "devices": "https://primary-production-42b01.up.railway.app/webhook/18ed55b9-ed62-487c-b20e-7fd12bc86730"
+  },
+  "supported_devices": [
+    "air_conditioner",
+    "light",
+    "switch",
+    "sensor",
+    "scene"
+  ],
+  "device_types": {
+    "air_conditioner": {
+      "commands": ["on", "off", "setTemperature", "setMode", "setFanSpeed"],
+      "attributes": ["temperature", "mode", "fanSpeed", "powerState"]
+    },
+    "light": {
+      "commands": ["on", "off", "setBrightness", "setColor", "setColorTemperature"],
+      "attributes": ["brightness", "color", "powerState"]
+    },
+    "switch": {
+      "commands": ["on", "off", "setTimer"],
+      "attributes": ["powerState", "timer"]
+    },
+    "sensor": {
+      "commands": ["getValue"],
+      "attributes": ["temperature", "humidity", "illuminance", "motion"]
+    },
+    "scene": {
+      "commands": ["execute"],
+      "attributes": ["name", "devices"]
+    }
+  },
+  "rooms": [
+    "거실",
+    "안방",
+    "아이방",
+    "주방",
+    "화장실",
+    "베란다"
+  ]
+}

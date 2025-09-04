@@ -85,6 +85,68 @@ Housemate는 텔레그램을 인터페이스로 사용하여 가정의 다양한
 3. 웹훅 URL 구성
 4. 워크플로우 활성화
 
+## 🔗 서비스 연동 방법
+
+### 🍌 Nanobanana (이미지 편집) 연동
+
+#### 1. 설정 파일 확인
+```bash
+# nanobanana/config.json 파일에서 엔드포인트 확인
+{
+  "endpoints": {
+    "edit": "https://primary-production-42b01.up.railway.app/webhook/a099d311-150f-4a53-a7fa-e5d6f2bea2dc"
+  }
+}
+```
+
+#### 2. n8n 워크플로우 설정
+- **Gemini Image Agent** 노드에서 HTTP Request Tool 설정
+- URL: `https://primary-production-42b01.up.railway.app/webhook/a099d311-150f-4a53-a7fa-e5d6f2bea2dc`
+- Method: POST
+- Body: JSON 형태로 편집 파라미터 전송
+
+#### 3. 사용 예시
+```
+텔레그램에서 이미지 전송 → "배경 제거해줘" → AI가 자동으로 Nanobanana API 호출 → 편집된 이미지 반환
+```
+
+### 🏠 SmartThings (스마트홈) 연동
+
+#### 1. 설정 파일 확인
+```bash
+# smartthings/config.json 파일에서 지원 기기 및 명령 확인
+{
+  "supported_devices": ["air_conditioner", "light", "switch", "sensor", "scene"],
+  "endpoints": {
+    "devices": "https://primary-production-42b01.up.railway.app/webhook/18ed55b9-ed62-487c-b20e-7fd12bc86730"
+  }
+}
+```
+
+#### 2. n8n 워크플로우 설정
+- **SmartThings** 노드에서 HTTP Request Tool 설정
+- URL: `https://primary-production-42b01.up.railway.app/webhook/18ed55b9-ed62-487c-b20e-7fd12bc86730`
+- Method: POST
+- Body Parameters: deviceId, commands, summary, text
+
+#### 3. 사용 예시
+```
+텔레그램에서 "거실 에어컨 22도로 설정해줘" → AI가 SmartThings API 호출 → 에어컨 온도 조절
+```
+
+### 📁 프로젝트 구조
+```
+Housemate/
+├── README.md                 # 메인 문서
+├── Housemate.json           # n8n 워크플로우
+├── nanobanana/              # 이미지 편집 서비스
+│   ├── README.md
+│   └── config.json
+└── smartthings/             # 스마트홈 제어 서비스
+    ├── README.md
+    └── config.json
+```
+
 ## 📊 모니터링
 
 - **Google Sheets 연동**: 모든 요청과 응답을 자동 로깅
