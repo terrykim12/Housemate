@@ -223,7 +223,7 @@
             {
               "id": "2fd15951-2c71-42bc-84d8-8d18dc0ff2d7",
               "name": "text",
-              "value": "=다음 파일 정보를 기억하고 있다가 내 다음 요청에 사용해 줘. \nID: 파일명:{{ $json.name }} download_URL:{{ $json.webContentLink }} view_url(공유,확인용):{{ $json.webViewLink }}",
+              "value": "=다음 파일 정보를 기억하고 있다가 내 다음 요청에 사용해 줘. \nID: 파일명:{{ $json.name }} \ndownload_URL:{{ $json.webContentLink }} \nview_url(공유,확인용):{{ $json.webViewLink }}\nFile ID : {{ $json.id }}",
               "type": "string"
             }
           ]
@@ -938,8 +938,8 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.2,
       "position": [
-        -1248,
-        672
+        -384,
+        640
       ],
       "id": "dd2f90c8-88a9-44ba-933a-a295588da0f4",
       "name": "Gemini Image Agent"
@@ -1154,8 +1154,8 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.2,
       "position": [
-        -448,
-        784
+        -240,
+        640
       ],
       "id": "f7ba5fd2-1675-4f6b-9f75-9b44c38f5779",
       "name": "SmartThings"
@@ -1537,7 +1537,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "dcfb192d-b00d-4d49-a69b-6f0312208964",
+  "versionId": "22aaa548-e003-4266-94bb-4f45ead2fe62",
   "meta": {
     "instanceId": "ac1f7bff01abab11d9580700c02d94e96a279438a79b2a17d8c07a38f76c3016"
   },
